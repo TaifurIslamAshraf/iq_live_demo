@@ -7,8 +7,8 @@ void main() async {
 
   await SocialIqLiveSdk.initialize(
     serverUrl:  'wss://live.iqamasocial.com',
-    socketUrl:  'http://192.168.0.102:8000',
-    apiBaseUrl: 'http://192.168.0.102:8000',
+    socketUrl:  'https://connect.iqamasocial.com',
+    apiBaseUrl: 'https://connect.iqamasocial.com',
   );
 
   runApp(const MyApp());
