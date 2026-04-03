@@ -9,6 +9,8 @@ void main() async {
     serverUrl:  'wss://live.iqamasocial.com',
     socketUrl:  'https://connect.iqamasocial.com',
     apiBaseUrl: 'https://connect.iqamasocial.com',
+    // socketUrl:  'http://192.168.0.100:8000',
+    // apiBaseUrl: 'http://192.168.0.100:8000',
   );
 
   runApp(const MyApp());
