@@ -9,14 +9,16 @@ import 'package:social_iq_live_sdk/social_iq_live_sdk.dart';
 
 // ─── Firebase background handler ────────────────────────────────────────────
 // Must be a top-level function — runs in a separate isolate when app is killed.
-// Your app handles wakeup and navigation from the FCM notification payload.
 @pragma('vm:entry-point')
 Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  // Handle background notification in your app — navigate to call screen
-  // using the payload: type, callerId, receiverId, roomName, callType,
-  // callerName, callerAvatar.
-  debugPrint('[FCM background] type=${message.data['type']}');
+  final type = message.data['type'];
+  debugPrint('[FCM background] type=$type');
+
+  if (type == 'call_rejected' || type == 'call_cancelled') {
+    // Pop the calling screen so the caller doesn't stay stuck on "Calling…"
+    navigatorKey.currentState?.popUntil((route) => route.isFirst);
+  }
 }
 
 // ─── Navigator key ────────────────────────────────────────────────────────────
@@ -125,10 +127,16 @@ class _DemoHomePageState extends State<DemoHomePage> {
   // For background/killed state, your Firebase setup handles navigation.
   void _handleForegroundFcm(RemoteMessage message) {
     final data = message.data;
-    if (data['type'] == 'incoming_call') {
+    final type = data['type'];
+
+    if (type == 'incoming_call') {
       if (_isShowingIncomingCall) return; // deduplicate with socket path
       _isShowingIncomingCall = true;
       _showIncomingCallScreen(data);
+    } else if (type == 'call_rejected' || type == 'call_cancelled') {
+      // Caller's app was in background — socket missed the rejection.
+      // Pop back to home so the caller isn't stuck on "Calling…".
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
