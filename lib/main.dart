@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -95,7 +94,10 @@ class _DemoHomePageState extends State<DemoHomePage> {
     );
     _socketService.registerUser(userId);
     // Re-register after reconnection so incoming calls always arrive.
-    _socketService.onConnect.listen((_) => _socketService.registerUser(userId));
+    _socketService.onConnect.listen((_) {
+      debugPrint('[Demo] Socket reconnected — re-registering $userId');
+      _socketService.registerUser(userId);
+    });
     _listenForIncomingCalls();
 
     // Foreground FCM — show IncomingCallScreen when FCM arrives while app is open.
@@ -111,6 +113,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
   // ── Incoming calls via socket (foreground) ───────────────────────────────
   void _listenForIncomingCalls() {
     _socketService.onIncomingCall.listen((data) {
+      debugPrint('[Demo] Incoming call via socket: $data');
       if (!mounted || _isShowingIncomingCall) return;
       _isShowingIncomingCall = true;
       _showIncomingCallScreen(data);
@@ -181,22 +184,19 @@ class _DemoHomePageState extends State<DemoHomePage> {
   }
 
   Future<void> _uploadFcmToken(String token) async {
+    debugPrint('[Demo] Uploading FCM token for $userId: $token');
     try {
-      await http.post(
-        Uri.parse('${SocialIqLiveSdkConfig.apiBaseUrl}/v1/api/fcm-token'),
+      final response = await http.post(
+        Uri.parse('${SocialIqLiveSdkConfig.apiBaseUrl}/v1/api/update_token'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $userToken',
         },
-        body: jsonEncode({
-          'userId': userId,
-          'token': token,
-          'platform': Platform.isIOS ? 'ios' : 'android',
-        }),
+        body: jsonEncode({'token': token}),
       );
-      debugPrint('FCM token uploaded');
+      debugPrint('[Demo] FCM token upload status: ${response.statusCode}');
     } catch (e) {
-      debugPrint('FCM token upload failed: $e');
+      debugPrint('[Demo] FCM token upload failed: $e');
     }
   }
 
