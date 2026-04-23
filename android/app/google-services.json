@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "603689281042",
+    "firebase_url": "https://iqama-social-default-rtdb.firebaseio.com",
+    "project_id": "iqama-social",
+    "storage_bucket": "iqama-social.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:603689281042:android:fdc56f2dc2e22e81b0dacb",
+        "android_client_info": {
+          "package_name": "com.iqama.newsocial"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzkc2Gbqg76dy5TLGCo_D6Oam2BCzmCNo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

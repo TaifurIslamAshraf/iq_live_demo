@@ -1,4 +1,4 @@
-package com.example.iq_live_demo
+package com.iqama.newsocial
 
 import io.flutter.embedding.android.FlutterActivity
 

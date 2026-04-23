@@ -42,15 +42,6 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Required by flutter_callkit_incoming for full-screen call UI -->
-        <activity
-            android:name="com.hiennv.flutter_callkit_incoming.CallkitIncomingActivity"
-            android:exported="false" />
-
-        <receiver
-            android:name="com.hiennv.flutter_callkit_incoming.CallkitIncomingBroadcastReceiver"
-            android:exported="false" />
-
         <!-- Required for FCM background handler -->
         <service
             android:name="com.google.firebase.messaging.FirebaseMessagingService"

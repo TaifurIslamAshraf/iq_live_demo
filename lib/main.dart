@@ -10,22 +10,17 @@ import 'package:social_iq_live_sdk/social_iq_live_sdk.dart';
 
 // ─── Firebase background handler ────────────────────────────────────────────
 // Must be a top-level function — runs in a separate isolate when app is killed.
+// Your app handles wakeup and navigation from the FCM notification payload.
 @pragma('vm:entry-point')
 Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-
-  final data = message.data;
-  if (data['type'] == 'incoming_call') {
-    await CallNotificationHandler.showIncomingCall(data);
-  } else if (data['type'] == 'call_cancelled') {
-    final roomName = data['roomName'];
-    if (roomName != null) {
-      await CallNotificationHandler.endCall(roomName);
-    }
-  }
+  // Handle background notification in your app — navigate to call screen
+  // using the payload: type, callerId, receiverId, roomName, callType,
+  // callerName, callerAvatar.
+  debugPrint('[FCM background] type=${message.data['type']}');
 }
 
-// ─── Navigator key (needed for CallKit accept from background/killed) ────────
+// ─── Navigator key ────────────────────────────────────────────────────────────
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
@@ -35,17 +30,11 @@ Future<void> main() async {
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
 
-  // Initialize SDK — requests mic + camera permissions.
   await SocialIqLiveSdk.initialize(
     serverUrl: 'wss://live.iqamasocial.com',
     socketUrl: 'https://connect.iqamasocial.com',
     apiBaseUrl: 'https://connect.iqamasocial.com',
-    // socketUrl:  'http://192.168.0.100:8000',
-    // apiBaseUrl: 'http://192.168.0.100:8000',
   );
-
-  // Start listening for CallKit accept / decline taps (background → foreground).
-  CallNotificationHandler.initialize();
 
   runApp(MyApp(navigatorKey: navigatorKey));
 }
@@ -87,9 +76,9 @@ class _DemoHomePageState extends State<DemoHomePage> {
   final TextEditingController _targetUserIdCtrl = TextEditingController();
 
   late final SocketService _socketService;
-  bool _isShowingIncomingCall = false; // guard against duplicate call screens
+  bool _isShowingIncomingCall = false;
 
-  // ── Lifecycle helpers ────────────────────────────────────────────────────
+  // ── Lifecycle callbacks ──────────────────────────────────────────────────
   void _onCallStarted() => debugPrint('▶ Call started');
   void _onCallConnected() => debugPrint('✅ Call connected — media live');
   void _onCallEnded(Duration d) => debugPrint('🔴 Call ended after $d');
@@ -99,140 +88,84 @@ class _DemoHomePageState extends State<DemoHomePage> {
   void initState() {
     super.initState();
 
-    // Socket — foreground incoming calls.
     _socketService = SocketService();
     _socketService.connect(
       url: SocialIqLiveSdkConfig.socketUrl,
       authToken: userToken,
     );
     _socketService.registerUser(userId);
-    // Re-register after any reconnection so the second call always arrives.
+    // Re-register after reconnection so incoming calls always arrive.
     _socketService.onConnect.listen((_) => _socketService.registerUser(userId));
-    _listenForIncomingCallsViaSocket();
+    _listenForIncomingCalls();
 
-    // CallKit — fired when user taps Accept / Decline on the native call UI
-    // (background or killed-app path via FCM).
-    _listenForCallKitEvents();
-
-    // Foreground FCM — shows native call UI even when app is in foreground so
-    // both paths (socket + FCM) are unified through CallKit.
+    // Foreground FCM — show IncomingCallScreen when FCM arrives while app is open.
     FirebaseMessaging.onMessage.listen(_handleForegroundFcm);
 
-    // Register FCM token with backend so it can wake this device.
+    // Register FCM token so backend can wake this device.
     _registerFcmToken();
 
-    // Android 13+ — request notification permission at runtime.
+    // Android 13+ runtime notification permission.
     FirebaseMessaging.instance.requestPermission();
   }
 
-  // ── Socket foreground path ────────────────────────────────────────────────
-  void _listenForIncomingCallsViaSocket() {
+  // ── Incoming calls via socket (foreground) ───────────────────────────────
+  void _listenForIncomingCalls() {
     _socketService.onIncomingCall.listen((data) {
-      if (!mounted) return;
-      if (_isShowingIncomingCall) return; // deduplicate
+      if (!mounted || _isShowingIncomingCall) return;
       _isShowingIncomingCall = true;
-
-      final callType = data['callType'] == 'video'
-          ? CallType.video
-          : CallType.audio;
-      final callerName = data['callerName'] as String? ?? 'Unknown';
-      final callerAvatar = data['callerAvatar'] as String?;
-      final callerId = data['callerId'] as String;
-      final roomName = data['roomName'] as String;
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => IncomingCallScreen(
-            callerName: callerName,
-            callerAvatar: callerAvatar,
-            callType: callType,
-            onAccept: () {
-              Navigator.pop(context);
-              _isShowingIncomingCall = false;
-              _openCallScreen(
-                callType: callType,
-                callerId: callerId,
-                roomName: roomName,
-                callerName: callerName,
-                callerAvatar: callerAvatar,
-                isIncoming: true,
-              );
-            },
-            onDecline: () {
-              Navigator.pop(context);
-              _isShowingIncomingCall = false;
-              _socketService.rejectCall(callerId: callerId, receiverId: userId);
-            },
-          ),
-        ),
-      ).then((_) {
-        _isShowingIncomingCall = false;
-      });
-    });
-  }
-
-  // ── CallKit path (background / killed app) ────────────────────────────────
-  void _listenForCallKitEvents() {
-    // Accept — navigate to the appropriate call screen.
-    CallNotificationHandler.onCallAccepted.listen((data) {
-      final isVideo = data['callType'] == 'video';
-      final _ = isVideo ? CallType.video : CallType.audio;
-      final callerId = data['callerId'] ?? '';
-      final roomName = data['roomName'];
-      final callerName = data['callerName'];
-      final callerAvatar = data['callerAvatar'];
-
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => isVideo
-              ? VideoCallScreen(
-                  userToken: userToken,
-                  callerId: callerId,
-                  receiverId: userId,
-                  roomName: roomName,
-                  isIncoming: true,
-                  incomingCallerName: callerName,
-                  incomingCallerAvatar: callerAvatar,
-                  onCallStarted: _onCallStarted,
-                  onCallConnected: _onCallConnected,
-                  onCallEnded: _onCallEnded,
-                )
-              : AudioCallScreen(
-                  userToken: userToken,
-                  callerId: callerId,
-                  receiverId: userId,
-                  roomName: roomName,
-                  isIncoming: true,
-                  callerName: callerName,
-                  callerAvatar: callerAvatar,
-                  onCallStarted: _onCallStarted,
-                  onCallConnected: _onCallConnected,
-                  onCallEnded: _onCallEnded,
-                ),
-        ),
-      );
-    });
-
-    // Decline — notify the caller.
-    CallNotificationHandler.onCallDeclined.listen((data) {
-      final callerId = data['callerId'] ?? '';
-      _socketService.rejectCall(callerId: callerId, receiverId: userId);
+      _showIncomingCallScreen(data);
     });
   }
 
   // ── Foreground FCM handler ────────────────────────────────────────────────
+  // Called when the app is open and a push arrives.
+  // For background/killed state, your Firebase setup handles navigation.
   void _handleForegroundFcm(RemoteMessage message) {
     final data = message.data;
     if (data['type'] == 'incoming_call') {
-      // Show native CallKit UI (flutter_callkit_incoming deduplicates by roomName).
-      CallNotificationHandler.showIncomingCall(data);
-    } else if (data['type'] == 'call_cancelled') {
-      final roomName = data['roomName'];
-      if (roomName != null) {
-        CallNotificationHandler.endCall(roomName);
-      }
+      if (_isShowingIncomingCall) return; // deduplicate with socket path
+      _isShowingIncomingCall = true;
+      _showIncomingCallScreen(data);
     }
+  }
+
+  // ── Show IncomingCallScreen ───────────────────────────────────────────────
+  void _showIncomingCallScreen(Map<String, dynamic> data) {
+    final isVideo = data['callType'] == 'video';
+    final callType = isVideo ? CallType.video : CallType.audio;
+    final callerName = data['callerName'] as String? ?? 'Unknown';
+    final callerAvatar = data['callerAvatar'] as String?;
+    final callerId = data['callerId'] as String? ?? '';
+    final roomName = data['roomName'] as String?;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => IncomingCallScreen(
+          callerName: callerName,
+          callerAvatar: callerAvatar,
+          callType: callType,
+          onAccept: () {
+            Navigator.pop(context);
+            _isShowingIncomingCall = false;
+            _openCallScreen(
+              callType: callType,
+              callerId: callerId,
+              receiverId: userId,
+              roomName: roomName,
+              callerName: callerName,
+              callerAvatar: callerAvatar,
+              isIncoming: true,
+            );
+          },
+          onDecline: () {
+            Navigator.pop(context);
+            _isShowingIncomingCall = false;
+            _socketService.rejectCall(callerId: callerId, receiverId: userId);
+          },
+        ),
+      ),
+    ).then((_) => _isShowingIncomingCall = false);
   }
 
   // ── FCM token registration ────────────────────────────────────────────────
@@ -240,10 +173,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
     try {
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null) return;
-
       await _uploadFcmToken(token);
-
-      // Re-upload if the token rotates.
       FirebaseMessaging.instance.onTokenRefresh.listen(_uploadFcmToken);
     } catch (e) {
       debugPrint('FCM token registration failed: $e');
@@ -274,6 +204,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
   void _openCallScreen({
     required CallType callType,
     required String callerId,
+    required String receiverId,
     String? roomName,
     String? callerName,
     String? callerAvatar,
@@ -288,9 +219,11 @@ class _DemoHomePageState extends State<DemoHomePage> {
           builder: (_) => VideoCallScreen(
             userToken: userToken,
             callerId: callerId,
-            receiverId: userId,
+            receiverId: receiverId,
             roomName: roomName,
             isIncoming: isIncoming,
+            callerName: callerName,
+            callerAvatar: callerAvatar,
             incomingCallerName: callerName,
             incomingCallerAvatar: callerAvatar,
             receiverName: receiverName,
@@ -308,11 +241,11 @@ class _DemoHomePageState extends State<DemoHomePage> {
           builder: (_) => AudioCallScreen(
             userToken: userToken,
             callerId: callerId,
-            receiverId: userId,
+            receiverId: receiverId,
             roomName: roomName,
             isIncoming: isIncoming,
-            callerName: callerName ?? receiverName,
-            callerAvatar: callerAvatar ?? receiverAvatar,
+            callerName: callerName,
+            callerAvatar: callerAvatar,
             receiverName: receiverName,
             receiverAvatar: receiverAvatar,
             onCallStarted: _onCallStarted,
@@ -410,9 +343,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
                           onLiveEnded: (duration) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(
-                                  'Broadcast ended after $duration',
-                                ),
+                                content: Text('Broadcast ended after $duration'),
                               ),
                             );
                           },
@@ -476,6 +407,8 @@ class _DemoHomePageState extends State<DemoHomePage> {
                     _openCallScreen(
                       callType: CallType.video,
                       callerId: userId,
+                      receiverId: target,
+                      callerName: userName,
                       receiverName: 'User $target',
                     );
                   },
@@ -497,6 +430,8 @@ class _DemoHomePageState extends State<DemoHomePage> {
                     _openCallScreen(
                       callType: CallType.audio,
                       callerId: userId,
+                      receiverId: target,
+                      callerName: userName,
                       receiverName: 'User $target',
                     );
                   },
