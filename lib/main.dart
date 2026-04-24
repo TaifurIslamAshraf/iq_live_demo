@@ -78,6 +78,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
 
   late final SocketService _socketService;
   bool _isShowingIncomingCall = false;
+  CallController? _preparedController;
 
   // ── Lifecycle callbacks ──────────────────────────────────────────────────
   void _onCallStarted() => debugPrint('▶ Call started');
@@ -149,6 +150,23 @@ class _DemoHomePageState extends State<DemoHomePage> {
     final callerId = data['callerId'] as String? ?? '';
     final roomName = data['roomName'] as String?;
 
+    // Pre-warm the LiveKit connection while the phone is ringing.
+    // By the time the user taps Accept the room is already joined.
+    _preparedController = CallController(
+      apiService: ApiService(baseUrl: SocialIqLiveSdkConfig.apiBaseUrl),
+    );
+    _preparedController!.prepareToAnswer(
+      userToken: userToken,
+      callerId: callerId,
+      receiverId: userId,
+      roomName: roomName ?? '',
+      callType: callType,
+      livekitUrl: SocialIqLiveSdkConfig.serverUrl,
+      socketUrl: SocialIqLiveSdkConfig.socketUrl,
+      callerName: callerName,
+      callerAvatar: callerAvatar,
+    );
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -167,16 +185,25 @@ class _DemoHomePageState extends State<DemoHomePage> {
               callerName: callerName,
               callerAvatar: callerAvatar,
               isIncoming: true,
+              preparedController: _preparedController,
             );
+            _preparedController = null;
           },
           onDecline: () {
             Navigator.pop(context);
             _isShowingIncomingCall = false;
+            _preparedController?.dispose();
+            _preparedController = null;
             _socketService.rejectCall(callerId: callerId, receiverId: userId);
           },
         ),
       ),
-    ).then((_) => _isShowingIncomingCall = false);
+    ).then((_) {
+      _isShowingIncomingCall = false;
+      // Clean up if screen was dismissed without explicit accept/decline
+      _preparedController?.dispose();
+      _preparedController = null;
+    });
   }
 
   // ── FCM token registration ────────────────────────────────────────────────
@@ -219,6 +246,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
     String? receiverName,
     String? receiverAvatar,
     bool isIncoming = false,
+    CallController? preparedController,
   }) {
     if (callType == CallType.video) {
       Navigator.push(
@@ -239,6 +267,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
             onCallStarted: _onCallStarted,
             onCallConnected: _onCallConnected,
             onCallEnded: _onCallEnded,
+            controller: preparedController,
           ),
         ),
       );
@@ -259,6 +288,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
             onCallStarted: _onCallStarted,
             onCallConnected: _onCallConnected,
             onCallEnded: _onCallEnded,
+            controller: preparedController,
           ),
         ),
       );
