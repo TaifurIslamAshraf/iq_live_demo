@@ -268,6 +268,8 @@ class _DemoHomePageState extends State<DemoHomePage> {
             onCallConnected: _onCallConnected,
             onCallEnded: _onCallEnded,
             controller: preparedController,
+            enableForegroundService: true,
+            enablePiP: true,
           ),
         ),
       );
@@ -289,6 +291,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
             onCallConnected: _onCallConnected,
             onCallEnded: _onCallEnded,
             controller: preparedController,
+            enableForegroundService: true,
           ),
         ),
       );
